@@ -1,6 +1,6 @@
 Name: libgcrypt
 Version: 1.4.5
-Release: 5%{?dist}.2
+Release: 9%{?dist}
 URL: http://www.gnupg.org/
 Source0: libgcrypt-%{version}-hobbled.tar.bz2
 # The original libgcrypt sources now contain potentially patented ECC
@@ -70,7 +70,7 @@ iconv -f ISO-8859-1 -t UTF-8 AUTHORS.iso88591 >AUTHORS
      --enable-hmac-binary-check \
      --enable-pubkey-ciphers='dsa elgamal rsa' \
      --disable-O-flag-munging
-make %{?_smp_mflags}
+make %{?_smp_mflags} LDFLAGS="-Wl,-z,relro"
 
 %check
 fipshmac src/.libs/libgcrypt.so.??
@@ -168,10 +168,13 @@ exit 0
 %doc COPYING
 
 %changelog
-* Mon May 30 2011 Tomas Mraz <tmraz@redhat.com> 1.4.5-5.2
+* Mon Aug 15 2011 Tomas Mraz <tmraz@redhat.com> 1.4.5-9
+- add partial relro to LDFLAGS (#727283)
+
+* Mon May 30 2011 Tomas Mraz <tmraz@redhat.com> 1.4.5-8
 - Make the FIPS-186-3 DSA implementation CAVS testable
 
-* Wed May 11 2011 Tomas Mraz <tmraz@redhat.com> 1.4.5-5.1
+* Fri May  6 2011 Tomas Mraz <tmraz@redhat.com> 1.4.5-7
 - add configurable source of RNG seed /etc/gcrypt/rngseed
   in the FIPS mode (#700388)
 
