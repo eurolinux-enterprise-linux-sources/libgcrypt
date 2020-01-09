@@ -1,6 +1,6 @@
 Name: libgcrypt
 Version: 1.4.5
-Release: 9%{?dist}
+Release: 9%{?dist}.2
 URL: http://www.gnupg.org/
 Source0: libgcrypt-%{version}-hobbled.tar.bz2
 # The original libgcrypt sources now contain potentially patented ECC
@@ -20,6 +20,8 @@ Patch5: libgcrypt-1.4.5-tests.patch
 Patch6: libgcrypt-1.4.5-fips-cfgrandom.patch
 # make the FIPS-186-3 DSA CAVS testable
 Patch7: libgcrypt-1.4.5-cavs.patch
+# add GCRYCTL_SET_ENFORCED_FIPS_FLAG
+Patch8: libgcrypt-1.4.5-set-enforced-mode.patch
 
 # Technically LGPLv2.1+, but Fedora's table doesn't draw a distinction.
 # Documentation and some utilities are GPLv2+ licensed. These files
@@ -57,9 +59,13 @@ applications using libgcrypt.
 %patch5 -p1 -b .tests
 %patch6 -p1 -b .cfgrandom
 %patch7 -p1 -b .cavs
+%patch8 -p1 -b .enforce
 
 mv AUTHORS AUTHORS.iso88591
 iconv -f ISO-8859-1 -t UTF-8 AUTHORS.iso88591 >AUTHORS
+
+# avoid invoking makeinfo
+touch -r doc/gcrypt.texi.enforce doc/gcrypt.texi
 
 %build
 %configure --disable-static \
@@ -168,6 +174,9 @@ exit 0
 %doc COPYING
 
 %changelog
+* Thu Apr  5 2012 Tomas Mraz <tmraz@redhat.com> 1.4.5-9.2
+- Add GCRYCTL_SET_ENFORCED_FIPS_FLAG command
+
 * Mon Aug 15 2011 Tomas Mraz <tmraz@redhat.com> 1.4.5-9
 - add partial relro to LDFLAGS (#727283)
 
