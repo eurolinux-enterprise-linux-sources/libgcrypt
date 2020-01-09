@@ -1,6 +1,6 @@
 Name: libgcrypt
 Version: 1.4.5
-Release: 9%{?dist}.2
+Release: 11%{?dist}
 URL: http://www.gnupg.org/
 Source0: libgcrypt-%{version}-hobbled.tar.bz2
 # The original libgcrypt sources now contain potentially patented ECC
@@ -22,6 +22,8 @@ Patch6: libgcrypt-1.4.5-fips-cfgrandom.patch
 Patch7: libgcrypt-1.4.5-cavs.patch
 # add GCRYCTL_SET_ENFORCED_FIPS_FLAG
 Patch8: libgcrypt-1.4.5-set-enforced-mode.patch
+# fix cache side channel attack
+Patch9: libgcrypt-1.4.5-cve-2013-4242.patch
 
 # Technically LGPLv2.1+, but Fedora's table doesn't draw a distinction.
 # Documentation and some utilities are GPLv2+ licensed. These files
@@ -60,6 +62,7 @@ applications using libgcrypt.
 %patch6 -p1 -b .cfgrandom
 %patch7 -p1 -b .cavs
 %patch8 -p1 -b .enforce
+%patch9 -p1 -b .cache-attack
 
 mv AUTHORS AUTHORS.iso88591
 iconv -f ISO-8859-1 -t UTF-8 AUTHORS.iso88591 >AUTHORS
@@ -174,7 +177,10 @@ exit 0
 %doc COPYING
 
 %changelog
-* Thu Apr  5 2012 Tomas Mraz <tmraz@redhat.com> 1.4.5-9.2
+* Thu Oct 10 2013 Tomas Mraz <tmraz@redhat.com> 1.4.5-11
+- fix CVE-2013-4242 GnuPG/libgcrypt susceptible to cache side-channel attack
+
+* Thu Apr  5 2012 Tomas Mraz <tmraz@redhat.com> 1.4.5-10
 - Add GCRYCTL_SET_ENFORCED_FIPS_FLAG command
 
 * Mon Aug 15 2011 Tomas Mraz <tmraz@redhat.com> 1.4.5-9
