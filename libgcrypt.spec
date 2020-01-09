@@ -1,6 +1,6 @@
 Name: libgcrypt
 Version: 1.4.5
-Release: 11%{?dist}
+Release: 12%{?dist}
 URL: http://www.gnupg.org/
 Source0: libgcrypt-%{version}-hobbled.tar.bz2
 # The original libgcrypt sources now contain potentially patented ECC
@@ -24,6 +24,8 @@ Patch7: libgcrypt-1.4.5-cavs.patch
 Patch8: libgcrypt-1.4.5-set-enforced-mode.patch
 # fix cache side channel attack
 Patch9: libgcrypt-1.4.5-cve-2013-4242.patch
+# fix predictable PRNG output
+Patch10: libgcrypt-1.4.5-rng-predictable.patch
 
 # Technically LGPLv2.1+, but Fedora's table doesn't draw a distinction.
 # Documentation and some utilities are GPLv2+ licensed. These files
@@ -63,6 +65,7 @@ applications using libgcrypt.
 %patch7 -p1 -b .cavs
 %patch8 -p1 -b .enforce
 %patch9 -p1 -b .cache-attack
+%patch10 -p1 -b .rng-predictable
 
 mv AUTHORS AUTHORS.iso88591
 iconv -f ISO-8859-1 -t UTF-8 AUTHORS.iso88591 >AUTHORS
@@ -177,6 +180,9 @@ exit 0
 %doc COPYING
 
 %changelog
+* Tue Oct 25 2016 Tomáš Mráz <tmraz@redhat.com> 1.4.5-12
+- fix CVE-2016-6313 - predictable PRNG output (#1366105)
+
 * Thu Oct 10 2013 Tomas Mraz <tmraz@redhat.com> 1.4.5-11
 - fix CVE-2013-4242 GnuPG/libgcrypt susceptible to cache side-channel attack
 
