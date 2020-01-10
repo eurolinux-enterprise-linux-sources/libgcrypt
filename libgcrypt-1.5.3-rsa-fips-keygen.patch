@@ -186,15 +186,15 @@ diff -up libgcrypt-1.5.3/cipher/rsa.c.fips-keygen libgcrypt-1.5.3/cipher/rsa.c
 +          if (testparms) goto err;
 +          goto qloop;
 +        }
-+      if (mpi_cmp (p, q) < 0)
++      if (mpi_cmp (p, q) > 0)
 +        {
 +          pqswitch = 1;
-+          mpi_sub (diff, q, p);
++          mpi_sub (diff, p, q);
 +        }      
 +      else
 +        {
 +          pqswitch = 0;
-+          mpi_sub (diff, p, q);
++          mpi_sub (diff, q, p);
 +        }
 +      if (mpi_cmp (diff, mindiff) < 0)
 +        {

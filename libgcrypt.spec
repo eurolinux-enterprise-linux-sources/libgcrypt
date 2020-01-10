@@ -1,6 +1,6 @@
 Name: libgcrypt
 Version: 1.5.3
-Release: 12%{?dist}
+Release: 12%{?dist}.1
 URL: http://www.gnupg.org/
 Source0: libgcrypt-%{version}-hobbled.tar.xz
 # The original libgcrypt sources now contain potentially patented ECC
@@ -45,6 +45,8 @@ Patch20: libgcrypt-1.5.3-rsa-fips-keygen.patch
 Patch21: libgcrypt-1.5.3-fips-cfgrandom.patch
 # update the selftests for new FIPS requirements
 Patch22: libgcrypt-1.5.3-fips-reqs.patch
+# use only urandom if /dev/random cannot be opened
+Patch24: libgcrypt-1.5.3-urandom-only.patch
 
 %define gcrylibdir %{_libdir}
 
@@ -96,6 +98,7 @@ applications using libgcrypt.
 %patch20 -p1 -b .fips-keygen
 %patch21 -p1 -b .cfgrandom
 %patch22 -p1 -b .fips-reqs
+%patch24 -p1 -b .urandom-only
 
 %build
 %configure --disable-static \
@@ -197,6 +200,11 @@ exit 0
 %doc COPYING
 
 %changelog
+* Fri Apr 10 2015 Tomáš Mráz <tmraz@redhat.com> 1.5.3-12.1
+- touch only urandom in the selftest and when /dev/random is
+  unavailable for example by SELinux confinement
+- fix the RSA selftest key (p q swap)
+
 * Wed Jan 14 2015 Tomáš Mráz <tmraz@redhat.com> 1.5.3-12
 - use macros instead of inline functions in the public header
 

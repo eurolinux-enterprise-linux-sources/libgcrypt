@@ -1,0 +1,38 @@
+diff -up libgcrypt-1.5.3/random/random-csprng.c.urandom-only libgcrypt-1.5.3/random/random-csprng.c
+--- libgcrypt-1.5.3/random/random-csprng.c.urandom-only	2013-07-25 11:10:04.000000000 +0200
++++ libgcrypt-1.5.3/random/random-csprng.c	2015-04-10 10:31:39.797534903 +0200
+@@ -855,7 +855,7 @@ _gcry_rngcsprng_update_seed_file (void)
+   if ( !allow_seed_file_update )
+     {
+       unlock_pool ();
+-      log_info(_("note: random_seed file not updated\n"));
++    /*  log_info(_("note: random_seed file not updated\n")); */
+       return;
+     }
+ 
+@@ -1120,8 +1120,7 @@ getfnc_gather_random (void))(void (*)(co
+              enum random_origins, size_t, int);
+ 
+ #if USE_RNDLINUX
+-  if ( !access (NAME_OF_DEV_RANDOM, R_OK)
+-       && !access (NAME_OF_DEV_URANDOM, R_OK))
++  if (!access (NAME_OF_DEV_URANDOM, R_OK))
+     {
+       fnc = _gcry_rndlinux_gather_random;
+       return fnc;
+diff -up libgcrypt-1.5.3/random/rndlinux.c.urandom-only libgcrypt-1.5.3/random/rndlinux.c
+--- libgcrypt-1.5.3/random/rndlinux.c.urandom-only	2014-12-12 16:51:56.000000000 +0100
++++ libgcrypt-1.5.3/random/rndlinux.c	2015-04-10 10:34:13.615111926 +0200
+@@ -132,7 +132,11 @@ _gcry_rndlinux_gather_random (void (*add
+   if (level >= 2)
+     {
+       if( fd_random == -1 )
+-        fd_random = open_device ( NAME_OF_DEV_RANDOM, 1 );
++        /* We try to open /dev/random first but in case the open fails
++           we gracefully retry with /dev/urandom. */
++        fd_random = open_device ( NAME_OF_DEV_RANDOM, 0 );
++        if (fd_random == -1)
++          fd_random = open_device ( NAME_OF_DEV_URANDOM, 1 );
+       fd = fd_random;
+     }
+   else if (level != -1)
