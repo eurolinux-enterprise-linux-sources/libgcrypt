@@ -1,6 +1,6 @@
 Name: libgcrypt
 Version: 1.5.3
-Release: 13%{?dist}.1
+Release: 14%{?dist}
 URL: http://www.gnupg.org/
 Source0: libgcrypt-%{version}-hobbled.tar.xz
 # The original libgcrypt sources now contain potentially patented ECC
@@ -49,6 +49,12 @@ Patch22: libgcrypt-1.5.3-fips-reqs.patch
 Patch24: libgcrypt-1.5.3-urandom-only.patch
 # fix predictable PRNG output
 Patch26: libgcrypt-1.5.3-rng-predictable.patch
+# add drgb cavs test
+Patch27: libgcrypt-1.5.3-drbg-cavs.patch
+# allow reinitialization of ath in the FIPS mode
+Patch28: libgcrypt-1.5.3-ath-reinstall.patch
+# allow auto-initialization of drbg
+Patch29: libgcrypt-1.5.3-drbg-init.patch
 
 %define gcrylibdir %{_libdir}
 
@@ -102,6 +108,9 @@ applications using libgcrypt.
 %patch22 -p1 -b .fips-reqs
 %patch24 -p1 -b .urandom-only
 %patch26 -p1 -b .rng-predictable
+%patch27 -p1 -b .drbg-cavs
+%patch28 -p1 -b .ath-reinstall
+%patch29 -p1 -b .drbg-init
 
 %build
 %configure --disable-static \
@@ -203,6 +212,11 @@ exit 0
 %doc COPYING
 
 %changelog
+* Tue Feb 28 2017 Tomáš Mráz <tmraz@redhat.com> 1.5.3-14
+- add DRBG CAVS driver and other necessary CAVS driver updates (#1172568)
+- allow ath reinitialization in FIPS mode
+- allow for auto-initialization of DRBG
+
 * Tue Oct 25 2016 Tomáš Mráz <tmraz@redhat.com> 1.5.3-13.1
 - fix CVE-2016-6313 - predictable PRNG output (#1366105)
 

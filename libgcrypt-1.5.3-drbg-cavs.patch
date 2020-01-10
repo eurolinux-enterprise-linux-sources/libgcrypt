@@ -1,0 +1,972 @@
+diff -up libgcrypt-1.5.3/random/drbg.c.drbg-cavs libgcrypt-1.5.3/random/drbg.c
+--- libgcrypt-1.5.3/random/drbg.c.drbg-cavs	2017-02-28 14:28:55.695906569 +0100
++++ libgcrypt-1.5.3/random/drbg.c	2017-02-28 14:28:55.700906686 +0100
+@@ -2130,6 +2130,16 @@ gcry_drbg_cavs_test (struct gcry_drbg_te
+   if (ret)
+     goto outbuf;
+ 
++  if (test->entropyrsd)
++    {
++      gcry_drbg_string_fill (&testentropy, test->entropyrsd,
++			     test->entropyrsdlen);
++      gcry_drbg_string_fill (&addtl, test->addtlrsd,
++			     test->addtlrsdlen);
++      if (gcry_drbg_reseed (drbg, &addtl))
++	goto outbuf;
++    }
++
+   gcry_drbg_string_fill (&addtl, test->addtla, test->addtllen);
+   if (test->entpra)
+     {
+diff -up libgcrypt-1.5.3/random/random.h.drbg-cavs libgcrypt-1.5.3/random/random.h
+--- libgcrypt-1.5.3/random/random.h.drbg-cavs	2017-02-28 14:28:55.686906357 +0100
++++ libgcrypt-1.5.3/random/random.h	2017-02-28 14:28:55.700906686 +0100
+@@ -69,6 +69,10 @@ struct gcry_drbg_test_vector
+   size_t perslen;
+   unsigned char *expected;
+   size_t expectedlen;
++  unsigned char *entropyrsd;
++  size_t entropyrsdlen;
++  unsigned char *addtlrsd;
++  size_t addtlrsdlen;
+ };
+ 
+ gpg_err_code_t gcry_drbg_cavs_test (struct gcry_drbg_test_vector *test,
+diff -up libgcrypt-1.5.3/tests/cavs_driver.pl.drbg-cavs libgcrypt-1.5.3/tests/cavs_driver.pl
+--- libgcrypt-1.5.3/tests/cavs_driver.pl.drbg-cavs	2017-02-28 14:28:55.674906074 +0100
++++ libgcrypt-1.5.3/tests/cavs_driver.pl	2017-02-28 14:41:46.086048300 +0100
+@@ -192,15 +192,17 @@ my $rsa_derive;
+ # Sign a message with RSA
+ # $1: data to be signed in hex form
+ # $2: Hash algo
+-# $3: Key file in PEM format with the private key
++# $3: PSS flag
++# $4: Key file in PEM format with the private key
+ # return: digest in hex format
+ my $rsa_sign;
+ 
+ # Verify a message with RSA
+ # $1: data to be verified in hex form
+ # $2: hash algo
+-# $3: file holding the public RSA key in PEM format
+-# $4: file holding the signature in binary form
++# $3: PSS flag
++# $4: file holding the public RSA key in PEM format
++# $5: file holding the signature in binary form
+ # return: 1 == verified / 0 == not verified
+ my $rsa_verify;
+ 
+@@ -329,6 +331,8 @@ my $rsa_keygen;
+ 
+ my $rsa_keygen_kat;
+ 
++my $drbg_kat;
++
+ ################################################################
+ ##### OpenSSL interface functions
+ ################################################################
+@@ -350,9 +354,10 @@ sub openssl_encdec($$$$$) {
+ 	return bin2hex($data);
+ }
+ 
+-sub openssl_rsa_sign($$$) {
++sub openssl_rsa_sign($$$$) {
+ 	my $data = shift;
+ 	my $cipher = shift;
++	my $pss = shift; # unsupported
+ 	my $keyfile = shift;
+ 
+ 	$data=hex2bin($data);
+@@ -365,6 +370,7 @@ sub openssl_rsa_sign($$$) {
+ sub openssl_rsa_verify($$$$) {
+ 	my $data = shift;
+ 	my $cipher = shift;
++	my $pss = shift; # unsupported
+ 	my $keyfile = shift;
+ 	my $sigfile = shift;
+ 
+@@ -497,27 +503,38 @@ sub libgcrypt_rsa_keygen_kat($$$$) {
+ }
+ 
+ 
+-sub libgcrypt_rsa_sign($$$) {
++sub libgcrypt_rsa_sign($$$$) {
+ 	my $data = shift;
+ 	my $hashalgo = shift;
++	my $pss = shift;
+ 	my $keyfile = shift;
+ 
+ 	die "ARCFOUR not available for RSA" if $opt{'R'};
+ 
++	if ($pss) {
++		return pipe_through_program($data,
++			"fipsdrv --pss --algo $hashalgo --key $keyfile rsa-sign");
++	}
+ 	return pipe_through_program($data,
+ 		"fipsdrv --pkcs1 --algo $hashalgo --key $keyfile rsa-sign");
+ }
+ 
+-sub libgcrypt_rsa_verify($$$$) {
++sub libgcrypt_rsa_verify($$$$$) {
+ 	my $data = shift;
+ 	my $hashalgo = shift;
++	my $pss = shift;
+ 	my $keyfile = shift;
+ 	my $sigfile = shift;
+ 
+ 	die "ARCFOUR not available for RSA" if $opt{'R'};
++
++	if ($pss) {
++		$data = pipe_through_program($data,
++			"fipsdrv --pss --algo $hashalgo --key $keyfile --signature $sigfile rsa-verify");
++	} else {
+ 	$data = pipe_through_program($data,
+ 		"fipsdrv --pkcs1 --algo $hashalgo --key $keyfile --signature $sigfile rsa-verify");
+-
++	}
+ 	# Parse through the output information
+ 	return ($data =~ /GOOD signature/);
+ }
+@@ -543,6 +560,16 @@ sub libgcrypt_hash($$) {
+ 	return pipe_through_program($pt, $program);
+ }
+ 
++sub libgcrypt_hash_mct($$) {
++	my $pt = shift;
++	my $hashalgo = shift;
++
++	my $program = "fipsdrv --algo $hashalgo --loop digest";
++	die "ARCFOUR not available for hashes" if $opt{'R'};
++
++	return pipe_through_program($pt, $program);
++}
++
+ sub libgcrypt_state_cipher($$$$$) {
+ 	my $cipher = shift;
+ 	my $enc = (shift) ? "encrypt": "decrypt";
+@@ -693,6 +720,35 @@ sub libgcrypt_dsa_verify($$$$) {
+ 	return ($ret =~ /GOOD signature/);
+ }
+ 
++sub libgcrypt_drbg_kat($$$$$$$$$$$$$$$$$) {
++	my $mode = shift;
++	my $cipher = shift;
++	my $pr = shift;
++	my $ent = shift;
++	my $entlen = shift;
++	my $nonce = shift;
++	my $noncelen = shift;
++	my $entrs = shift;
++	my $addtlrs = shift;
++	my $entpra = shift;
++	my $entprb = shift;
++	my $addtla = shift;
++	my $addtlb = shift;
++	my $addtllen = shift;
++	my $pers = shift;
++	my $perslen = shift;
++	my $expectedlen = shift;
++
++	my $entprlen = $entlen;
++
++	# concatenate entropy and nonce
++	$ent .= $nonce;
++	$entlen = $entlen + $noncelen;
++
++	return lc(pipe_through_program("$mode\n$pr\n$entlen\n$ent\n$perslen\n$pers\n$expectedlen\n$addtllen\n$entrs\n$addtlrs\n$addtla\n$addtlb\n$entprlen\n$entpra\n$entprb\n", "./fipsdrv --algo $cipher drbg"));
++}
++
++
+ ######### End of libgcrypt implementation ################
+ 
+ ################################################################
+@@ -1468,13 +1524,17 @@ sub hash_mct($$) {
+ 		my $md0=$pt;
+ 		my $md1=$pt;
+ 		my $md2=$pt;
+-        	for (my $i=0; $i<1000; ++$i) {
+-			#print STDERR "outer loop $j; inner loop $i\n";
+-			my $mi= $md0 . $md1 . $md2;
+-			$md0=$md1;
+-			$md1=$md2;
+-			$md2 = &$hash($mi, $cipher);
+-			$md2 =~ s/\n//;
++		if ($opt{'I'} && $opt{'I'} eq 'libgcrypt') {
++			$md2 = &libgcrypt_hash_mct($pt, $cipher);
++		} else {
++			for (my $i=0; $i<1000; ++$i) {
++				#print STDERR "outer loop $j; inner loop $i\n";
++				my $mi= $md0 . $md1 . $md2;
++				$md0=$md1;
++				$md1=$md2;
++				$md2 = &$hash($mi, $cipher);
++				$md2 =~ s/\n//;
++			}
+ 		}
+                 $out .= "MD = $md2\n\n";
+ 		$pt=$md2;
+@@ -1483,21 +1543,65 @@ sub hash_mct($$) {
+ 	return $out;
+ }
+ 
++sub drbg_kat_driver($$$$$$$$$$$$$$$$$) {
++	my $mode = shift;
++	my $cipher = shift;
++	my $pr = shift;
++	my $ent = shift;
++	my $entlen = shift;
++	my $nonce = shift;
++	my $noncelen = shift;
++	my $entrs = shift;
++	my $addtlrs = shift;
++	my $entpra = shift;
++	my $entprb = shift;
++	my $addtla = shift;
++	my $addtlb = shift;
++	my $addtllen = shift;
++	my $pers = shift;
++	my $perslen = shift;
++	my $expectedlen = shift;
++
++	my $out = "";
++
++	$out .= "ReturnedBits = " . &$drbg_kat($mode,
++						$cipher,
++						$pr,
++						$ent,
++						$entlen,
++						$nonce,
++						$noncelen,
++						$entrs,
++						$addtlrs,
++						$entpra,
++						$entprb,
++						$addtla,
++						$addtlb,
++						$addtllen,
++						$pers,
++						$perslen,
++						$expectedlen) . "\n";
++
++	return $out;
++}
++
+ # RSA SigGen test
+ # $1: Message to be signed in hex form
+ # $2: Hash algorithm
+-# $3: file name with RSA key in PEM form
++# $3: Use PSS
++# $4: file name with RSA key in PEM form
+ # return: string formatted as expected by CAVS
+-sub rsa_siggen($$$) {
++sub rsa_siggen($$$$) {
+ 	my $data = shift;
+ 	my $cipher = shift;
++	my $pss = shift;
+ 	my $keyfile = shift;
+ 
+ 	my $out = "";
+ 
+ 	$out .= "SHAAlg = $cipher\n";
+ 	$out .= "Msg = $data\n";
+-	$out .= "S = " . &$rsa_sign($data, lc($cipher), $keyfile) . "\n";
++	$out .= "S = " . &$rsa_sign($data, lc($cipher), $pss, $keyfile) . "\n";
+ 
+ 	return $out;
+ }
+@@ -1505,13 +1609,15 @@ sub rsa_siggen($$$) {
+ # RSA SigVer test
+ # $1: Message to be verified in hex form
+ # $2: Hash algoritm
+-# $3: Signature of message in hex form
+-# $4: n of the RSA key in hex in hex form
+-# $5: e of the RSA key in hex in hex form
++# $3: Use PSS
++# $4: Signature of message in hex form
++# $5: n of the RSA key in hex in hex form
++# $6: e of the RSA key in hex in hex form
+ # return: string formatted as expected by CAVS
+-sub rsa_sigver($$$$$) {
++sub rsa_sigver($$$$$$) {
+ 	my $data = shift;
+ 	my $cipher = shift;
++	my $pss = shift;
+ 	my $signature = shift;
+ 	my $n = shift;
+ 	my $e = shift;
+@@ -1534,7 +1640,7 @@ sub rsa_sigver($$$$$) {
+ 	print FH hex2bin($signature);
+ 	close FH;
+ 
+-	$out .= "Result = " . (&$rsa_verify($data, lc($cipher), $keyfile, $sigfile) ? "P\n" : "F\n");
++	$out .= "Result = " . (&$rsa_verify($data, lc($cipher), $pss, $keyfile, $sigfile) ? "P\n" : "F\n");
+ 
+ 	unlink($keyfile);
+ 	unlink($sigfile);
+@@ -1905,13 +2011,14 @@ sub rsa_keygen_driver($$) {
+ # $2 p in hex form
+ # $3 q in hex form
+ # return: string formatted as expected by CAVS
+-sub rsa_keygen_kat_driver($$$) {
++sub rsa_keygen_kat_driver($$$$) {
+ 	my $mod = shift;
++	my $e = shift;
+ 	my $p = shift;
+ 	my $q = shift;
+ 
+ 	my $out = "";
+-	my $ret = &$rsa_keygen_kat($mod, $p, $q);
++	my $ret = &$rsa_keygen_kat($mod, $e, $p, $q);
+ 	my ($Result) = split(/\n/, $ret);
+ 	die "Return value does not contain all expected values of Result for rsa_keygen_kat"
+ 		if (!defined($Result));
+@@ -1999,8 +2106,24 @@ sub parse($$) {
+ 	my $xq1 = "";
+ 	my $xq2 = "";
+ 	my $Xq = "";
++	my $pr = 0;
++	my $ent = "";
++	my $entlen = 0;
++	my $nonce = "";
++	my $noncelen = 0;
++	my $entrs = "";
++	my $addtlrs = "";
++	my $entpra = "x";
++	my $entprb = "x";
++	my $addtla = "x";
++	my $addtlb = "x";
++	my $addtllen = 0;
++	my $pers = "";
++	my $perslen = 0;
++	my $expectedlen = 0;
+ 
+ 	my $mode = "";
++	my $pss = 0;
+ 
+ 	open(IN, "<$infile");
+ 	while(<IN>) {
+@@ -2029,7 +2152,7 @@ sub parse($$) {
+ 
+ 		##### Extract cipher
+ 		# XXX there may be more - to be added
+-		if ($tmpline =~ /^#.*(CBC|ECB|OFB|CFB|SHA-|SigGen|SigVer|RC4VS|ANSI X9\.31|Hash sizes tested|PQGGen|KeyGen RSA|KeyGen - Random Probably Prime|KeyPair|PQGVer)/) {
++		if ($tmpline =~ /^#.*(CBC|ECB|OFB|CFB|SHA-|SigGen|SigVer|RC4VS|ANSI X9\.31|Hash sizes tested|PQGGen|KeyGen RSA|KeyGen - Random Probably Prime|KeyPair|PQGVer|DRBG800-90A)/) {
+ 			if ($tmpline    =~ /CBC/)   { $mode="cbc"; }
+ 			elsif ($tmpline =~ /ECB/)   { $mode="ecb"; }
+ 			elsif ($tmpline =~ /OFB/)   { $mode="ofb"; }
+@@ -2078,7 +2201,11 @@ sub parse($$) {
+ 
+ 			if ($tt == 0) {
+ 			##### Identify the test type
+-				if ($tmpline =~ /KeyGen - Random Probably Prime Known Answer Test/) {
++				if ($tmpline =~ /DRBG800-90A/) {
++					$tt = 20;
++					die "Interface function drbg_kat for DRBG KAT not defined for tested library"
++						if (!defined($drbg_kat));
++				} elsif ($tmpline =~ /KeyGen - Random Probably Prime Known Answer Test/) {
+ 					$tt = 19;
+ 					die "Interface function rsa_keygen_kat for RSA key generation KAT not defined for tested library"
+ 						if (!defined($rsa_keygen_kat));
+@@ -2123,10 +2250,16 @@ sub parse($$) {
+ 					die "Interface function state_rng for RNG KAT not defined for tested library"
+ 						if (!defined($state_rng));
+ 				} elsif ($tmpline =~ /SigVer/ ) {
++					if ($tmpline =~ /RSASSA-PSS/) {
++						$pss = 1;
++					}
+ 					$tt = 6;
+ 					die "Interface function rsa_verify or gen_rsakey for RSA verification not defined for tested library"
+ 						if (!defined($rsa_verify) || !defined($gen_rsakey));
+ 				} elsif ($tmpline =~ /SigGen/ ) {
++					if ($tmpline =~ /RSASSA-PSS/) {
++						$pss = 1;
++					}
+ 					$tt = 5;
+ 					die "Interface function rsa_sign or gen_rsakey for RSA sign not defined for tested library"
+ 						if (!defined($rsa_sign) || !defined($gen_rsakey));
+@@ -2252,7 +2385,7 @@ sub parse($$) {
+ 				$out .= "G = " . $pqg{'G'} . "\n\n";
+                         }
+                 }
+-		elsif ($line =~ /^\[mod\s*=\s*(.*)\]$/) { # found in RSA requests
++		elsif ($line =~ /^\[mod\s*=\s*(.*)\]/) { # found in RSA requests
+ 			$modulus = $1;
+ 			$out .= $line . "\n\n"; # print it
+ 			# generate the private key with given bit length now
+@@ -2277,10 +2410,21 @@ sub parse($$) {
+ 			$n=$1;
+ 		}
+ 		elsif ($line =~ /^e\s*=\s*(.*)/) { # found in RSA requests
+-			$e=$1;
+ 			if ($tt == 19) {
++				if ($modulus ne "" &&
++				    $e ne "" &&
++				    $prandom ne "") {
++					$out .= rsa_keygen_kat_driver($modulus,
++							$e,
++							$prandom,
++							"00");
++					$prandom = "";
++					$qrandom = "";
++					$e = "";
++				}
+ 				$out .= $line . "\n"; # print it
+ 			}
++			$e=$1;
+ 		}
+ 		elsif ($line =~ /^S\s*=\s*(.*)/) { # found in RSA requests
+ 			die "S seen twice - input file crap" if ($signature ne "");
+@@ -2306,6 +2450,89 @@ sub parse($$) {
+ 				if ($tlen ne "");
+ 			$tlen=$1;
+ 		}
++		elsif ($tt == 20) {
++			if ($line =~ /Hash_DRBG/) { # HASH DRBG request
++				$mode = "hash";
++			}
++			elsif ($line =~ /HMAC_DRBG/) { # HMAC DRBG request
++				$mode = "hmac";
++			}
++			elsif ($line =~ /CTR_DRBG/) { # CTR DRBG request
++				$mode = "ctr";
++			}
++			elsif ($line =~ /^\[SHA-1\]/) {
++				$cipher= "sha-1";
++			}
++			elsif ($line =~ /^\[SHA-256\]/) {
++				$cipher= "sha-256";
++			}
++			elsif ($line =~ /^\[SHA-384\]/) {
++				$cipher= "sha-384";
++			}
++			elsif ($line =~ /^\[SHA-512\]/) {
++				$cipher= "sha-512";
++			}
++			elsif ($line =~ /^\[AES-128 use df\]/) {
++				$cipher= "aes-128";
++			}
++			elsif ($line =~ /^\[AES-192 use df\]/) {
++				$cipher= "aes-192";
++			}
++			elsif ($line =~ /^\[AES-256 use df\]/) {
++				$cipher= "aes-256";
++			}
++			elsif ($line =~ /^\[PredictionResistance\s*=\s*True\]/) {
++				$pr = 1;
++			}
++			elsif ($line =~ /^\[PredictionResistance\s*=\s*False\]/) {
++				$pr = 0;
++			}
++			elsif ($line =~ /^\[EntropyInputLen\s*=\s*(.*)\]/) {
++				$entlen = $1;
++			}
++			elsif ($line =~ /^\[NonceLen\s*=\s*(.*)\]/) {
++				$noncelen = $1;
++			}
++			elsif ($line =~ /^\[PersonalizationStringLen\s*=\s*(.*)\]/) {
++				$perslen = $1;
++			}
++			elsif ($line =~ /^\[AdditionalInputLen\s*=\s*(.*)\]/) {
++				$addtllen = $1;
++			}
++			elsif ($line =~ /^\[ReturnedBitsLen\s*=\s*(.*)\]/) {
++				$expectedlen = $1;
++			}
++			elsif ($line =~ /^EntropyInput\s*=\s*(.*)/) {
++				$ent = $1;
++			}
++			elsif ($line =~ /^EntropyInputReseed\s*=\s*(.*)/) {
++				$entrs = $1;
++			}
++			elsif ($line =~ /^Nonce\s*=\s*(.*)/) {
++				$nonce = $1;
++			}
++			elsif ($line =~ /^PersonalizationString\s*=\s*(.*)/) {
++				$pers = $1;
++			}
++			elsif ($line =~ /^AdditionalInput\s*=\s*(.*)/) {
++				if ($addtla eq "x") {
++					$addtla = $1;
++				} else {
++					$addtlb = $1;
++				}
++			}
++			elsif ($line =~ /^EntropyInputPR\s*=\s*(.*)/) {
++				if ($entpra eq "x") {
++					$entpra = $1;
++				} else {
++					$entprb = $1;
++				}
++			}
++			elsif ($line =~ /^AdditionalInputReseed\s*=\s*(.*)/) {
++				$addtlrs = $1;
++			}
++			$out .= $line . "\n"; # print it
++		}
+ 		elsif ($line =~ /^N\s*=\s*(.*)/) { #DSA KeyPair
+ 			die "N seen twice - check input file"
+ 				if ($capital_n);
+@@ -2396,10 +2623,6 @@ sub parse($$) {
+ 			$qrandom = $1;
+ 			$out .= $line . "\n"; # print it
+ 		}
+-		elsif ($tt == 19 && $line =~ /^ / && $qrandom eq "") { #RSA key gen KAT
+-			$qrandom = "00";
+-			$out .= $line . "\n"; # print it
+-		}
+ 		else {
+ 			$out .= $line . "\n";
+ 		}
+@@ -2442,13 +2665,13 @@ sub parse($$) {
+ 		}
+ 		elsif ($tt == 5) {
+ 			if ($pt ne "" && $cipher ne "" && $rsa_keyfile ne "") {
+-				$out .= rsa_siggen($pt, $cipher, $rsa_keyfile);
++				$out .= rsa_siggen($pt, $cipher, $pss, $rsa_keyfile);
+ 				$pt = "";
+ 			}
+ 		}
+ 		elsif ($tt == 6) {
+ 			if ($pt ne "" && $cipher ne "" && $signature ne "" && $n ne "" && $e ne "") {
+-				$out .= rsa_sigver($pt, $cipher, $signature, $n, $e);
++				$out .= rsa_sigver($pt, $cipher, $pss, $signature, $n, $e);
+ 				$pt = "";
+ 				$signature = "";
+ 			}
+@@ -2635,6 +2858,37 @@ sub parse($$) {
+ 				$e = "";
+ 			}
+ 		}
++		elsif ($tt == 20) {
++			if (($pr == 1 && $entpra ne "x" &&  $entprb ne "x") ||
++				($pr == 0 && $addtla ne "x" && $addtlb ne "x")) {
++					$out .= drbg_kat_driver($mode,
++								$cipher,
++								$pr,
++								$ent,
++								$entlen,
++								$nonce,
++								$noncelen,
++								$entrs,
++								$addtlrs,
++								$entpra,
++								$entprb,
++								$addtla,
++								$addtlb,
++								$addtllen,
++								$pers,
++								$perslen,
++								$expectedlen);
++					$entpra = "x";
++					$entprb = "x";
++					$addtla = "x";
++					$addtlb = "x";
++					$ent = "";
++					$nonce = "";
++					$pers = "";
++					$entrs = "";
++					$addtlrs = "";
++			}
++		}
+ 		elsif ($tt > 0) {
+ 			die "Test case $tt not defined";
+ 		}
+@@ -2701,6 +2955,7 @@ sub main() {
+ 		$dsa_genpubkey = \&libgcrypt_dsa_genpubkey;
+ 		$rsa_keygen = \&libgcrypt_rsa_keygen;
+ 		$rsa_keygen_kat = \&libgcrypt_rsa_keygen_kat;
++		$drbg_kat = \&libgcrypt_drbg_kat;
+         } else {
+                 die "Invalid interface option given";
+         }
+diff -up libgcrypt-1.5.3/tests/fipsdrv.c.drbg-cavs libgcrypt-1.5.3/tests/fipsdrv.c
+--- libgcrypt-1.5.3/tests/fipsdrv.c.drbg-cavs	2017-02-28 14:28:55.674906074 +0100
++++ libgcrypt-1.5.3/tests/fipsdrv.c	2017-02-28 14:43:28.320456712 +0100
+@@ -22,6 +22,7 @@
+ #endif
+ #include <stdio.h>
+ #include <stdlib.h>
++#include <stdint.h>
+ #include <string.h>
+ #include <stdarg.h>
+ #include <errno.h>
+@@ -893,8 +894,10 @@ print_mpi_line (gcry_mpi_t a, int no_lz)
+     die ("gcry_mpi_aprint failed: %s\n", gpg_strerror (err));
+ 
+   p = buf;
+-  while (*p)
+-     *p++ = tolower(*p);
++  while (*p) {
++     *p = tolower(*p);
++     ++p;
++  }
+   p = buf;
+   if (no_lz && p[0] == '0' && p[1] == '0' && p[2])
+     p += 2;
+@@ -1256,6 +1259,46 @@ run_digest (int digest_algo,  const void
+   gcry_md_close (hd);
+ }
+ 
++/* Run inner loop of digest mct operation.  */
++static void
++run_digest_mct_loop (int digest_algo,  const void *data, size_t datalen, int iter)
++{
++  gpg_error_t err;
++  gcry_md_hd_t hd;
++  const unsigned char *digest;
++  unsigned int digestlen;
++  int i;
++  unsigned char *buf;
++
++  err = gcry_md_open (&hd, digest_algo, 0);
++  if (err)
++    die ("gcry_md_open failed for algo %d: %s\n",
++         digest_algo,  gpg_strerror (err));
++
++  digestlen = gcry_md_get_algo_dlen (digest_algo);
++  if (digestlen != datalen)
++    die ("Unexpected seed size %u for Hash mct algo %d\n", datalen, digest_algo);
++
++  buf = malloc (3*datalen);
++  if (!buf)
++    die ("Buffer allocation failed\n");
++
++  memcpy (buf, data, datalen);
++  memcpy (buf + datalen, data, datalen);
++  memcpy (buf + 2*datalen, data, datalen);
++
++  for (i = 0; i < iter; ++i)
++    {
++      gcry_md_reset (hd);
++      gcry_md_write (hd, buf, 3*datalen);
++      digest = gcry_md_read (hd, digest_algo);
++      memmove (buf, buf + datalen, 2*datalen);
++      memcpy (buf + 2*datalen, digest, datalen);
++    }
++  print_buffer (digest, digestlen);
++  gcry_md_close (hd);
++}
++
+ 
+ /* Run a HMAC operation.  */
+ static void
+@@ -1403,7 +1446,7 @@ run_rsa_keygen (const void *data, size_t
+       gcry_sexp_release (l1);
+       if (!mpi)
+         die ("parameter %c missing in private-key\n", parmlist[idx]);
+-      print_mpi_line (mpi, 1);
++      print_mpi_line (mpi, parmlist[idx] != 'd');
+       gcry_mpi_release (mpi);
+     }
+ 
+@@ -1592,7 +1635,7 @@ run_rsa_gen (int keysize, int pubexp)
+    encoded KEYFILE and the hash algorithm HASHALGO.  */
+ static void
+ run_rsa_sign (const void *data, size_t datalen,
+-              int hashalgo, int pkcs1, const char *keyfile)
++              int hashalgo, int pkcs1, int pss, const char *keyfile)
+ 
+ {
+   gpg_error_t err;
+@@ -1616,6 +1659,20 @@ run_rsa_sign (const void *data, size_t d
+                              gcry_md_algo_name (hashalgo),
+                              (int)hashsize, hash);
+     }
++  else if (pss)
++    {
++      unsigned char hash[64];
++      unsigned int hashsize;
++
++      hashsize = gcry_md_get_algo_dlen (hashalgo);
++      if (!hashsize || hashsize > sizeof hash)
++        die ("digest too long for buffer or unknown hash algorithm\n");
++      gcry_md_hash_buffer (hashalgo, hash, data, datalen);
++      err = gcry_sexp_build (&s_data, NULL,
++                             "(data (flags pss)(hash %s %b))",
++                             gcry_md_algo_name (hashalgo),
++                             (int)hashsize, hash);
++    }
+   else
+     {
+       gcry_mpi_t tmp;
+@@ -1683,7 +1740,7 @@ run_rsa_sign (const void *data, size_t d
+    binary signature in SIGFILE.  */
+ static void
+ run_rsa_verify (const void *data, size_t datalen, int hashalgo, int pkcs1,
+-                const char *keyfile, const char *sigfile)
++                int pss, const char *keyfile, const char *sigfile)
+ 
+ {
+   gpg_error_t err;
+@@ -1703,6 +1760,20 @@ run_rsa_verify (const void *data, size_t
+                              gcry_md_algo_name (hashalgo),
+                              (int)hashsize, hash);
+     }
++  else if (pss)
++    {
++      unsigned char hash[64];
++      unsigned int hashsize;
++
++      hashsize = gcry_md_get_algo_dlen (hashalgo);
++      if (!hashsize || hashsize > sizeof hash)
++        die ("digest too long for buffer or unknown hash algorithm\n");
++      gcry_md_hash_buffer (hashalgo, hash, data, datalen);
++      err = gcry_sexp_build (&s_data, NULL,
++                             "(data (flags pss)(hash %s %b))",
++                             gcry_md_algo_name (hashalgo),
++                             (int)hashsize, hash);
++    }
+   else
+     {
+       gcry_mpi_t tmp;
+@@ -2220,7 +2291,150 @@ run_dsa_verify (const void *data, size_t
+   gcry_sexp_release (s_data);
+ }
+ 
++struct gcry_drbg_test_vector
++{
++  uint32_t flags;
++  unsigned char *entropy;
++  size_t entropylen;
++  unsigned char *entpra;
++  unsigned char *entprb;
++  size_t entprlen;
++  unsigned char *addtla;
++  unsigned char *addtlb;
++  size_t addtllen;
++  unsigned char *pers;
++  size_t perslen;
++  unsigned char *expected;
++  size_t expectedlen;
++  unsigned char *entropyrsd;
++  size_t entropyrsdlen;
++  unsigned char *addtlrsd;
++  size_t addtlrsdlen;
++ };
++
++static uint32_t
++decode_drbg_flags(const char *algo, const char *mode, const char *pr)
++{
++	uint32_t flags = 0;
++
++	if (*pr == '1')
++		flags = GCRY_DRBG_PREDICTION_RESIST;
++
++	if (!strcmp(algo, "sha-1"))
++		flags |= GCRY_DRBG_HASHSHA1;
++	else if (!strcmp(algo, "sha-256"))
++		flags |= GCRY_DRBG_HASHSHA256;
++	else if (!strcmp(algo, "sha-384"))
++		flags |= GCRY_DRBG_HASHSHA384;
++	else if (!strcmp(algo, "sha-512"))
++		flags |= GCRY_DRBG_HASHSHA512;
++	else if (!strcmp(algo, "aes-128"))
++		flags |= GCRY_DRBG_SYM128;
++	else if (!strcmp(algo, "aes-192"))
++		flags |= GCRY_DRBG_SYM192;
++	else if (!strcmp(algo, "aes-256"))
++		flags |= GCRY_DRBG_SYM256;
++
++	if (!strcmp(mode, "hmac"))
++		flags |= GCRY_DRBG_HMAC;
++	else if (!strcmp(mode, "ctr"))
++		flags |= GCRY_DRBG_CTRAES;
++
++	return flags;	
++}
++
++static void
++run_drbg_test (const char *algo, void *data, size_t datalen)
++{
++	char *ptr = data;
++	char *mode;
++	char *pr;
++	char *entlen;
++	char *ent;
++	char *perslen;
++	char *pers;
++	char *expectedlen;
++	char *addtllen;
++	char *entrsd;
++	char *addtlrsd;
++	char *addtla;
++	char *addtlb;
++	char *entprlen;
++	char *entpra;
++	char *entprb;
++	unsigned char *buf;
++	size_t len;
++	struct gcry_drbg_test_vector vect;
++
++	mode = strsep(&ptr, "\n");
++	pr = strsep(&ptr, "\n");
++	entlen = strsep(&ptr, "\n");
++	ent = strsep(&ptr, "\n");
++	perslen = strsep(&ptr, "\n");
++	pers = strsep(&ptr, "\n");
++	expectedlen = strsep(&ptr, "\n");
++	addtllen = strsep(&ptr, "\n");
++	entrsd = strsep(&ptr, "\n");
++	addtlrsd = strsep(&ptr, "\n");
++	addtla = strsep(&ptr, "\n");
++	addtlb = strsep(&ptr, "\n");
++	entprlen = strsep(&ptr, "\n");
++	entpra = strsep(&ptr, "\n");
++	entprb = strsep(&ptr, "\n");
++
++	if (entprb == NULL) {
++		fprintf(stderr, "ERROR - Missing input data\n");
++		return;
++	}
++
++	vect.flags = decode_drbg_flags(algo, mode, pr);
++	
++	vect.entropy = hex2buffer(ent, &len);
++	vect.entropylen = atoi(entlen) / 8;
++	if (len != vect.entropylen) {
++		fprintf(stderr, "ERROR - inconsistent input data\n");
++		return;
++	}
++	vect.pers = hex2buffer(pers, &len);
++	vect.perslen = atoi(perslen) / 8;
++	if (len != vect.perslen) {
++		fprintf(stderr, "ERROR - inconsistent input data\n");
++		return;
++	}
++	vect.expectedlen = atoi(expectedlen) / 8;
++	vect.expected = NULL;
++	vect.addtlrsdlen = vect.addtllen = atoi(addtllen) / 8;
++	vect.addtla = hex2buffer(addtla, &len);
++	vect.addtlb = hex2buffer(addtlb, &len);
++	vect.entropyrsdlen = vect.entprlen = atoi(entprlen) / 8;
++	vect.entpra = hex2buffer(entpra, &len);
++	vect.entprb = hex2buffer(entprb, &len);
++	if (*entrsd != '\0') {
++		vect.entropyrsd = hex2buffer(entrsd, &len);
++		if (len != vect.entropyrsdlen) {
++			fprintf(stderr, "ERROR - inconsistent input data\n");
++			return;
++		}
++		if (*addtlrsd != '\0') {
++			vect.addtlrsd = hex2buffer(addtlrsd, &len);
++			if (len != vect.addtlrsdlen) {
++				fprintf(stderr, "ERROR - inconsistent input data\n");
++				return;
++			}
++		} else {
++			vect.addtlrsd = NULL;
++		}
++	} else {
++		vect.entropyrsd = NULL;
++		vect.addtlrsd = NULL;
++	}
++
++	buf = gcry_xmalloc(vect.expectedlen);
+ 
++	gcry_control(75, &vect, buf);
++
++	print_data_line(buf, vect.expectedlen);
++}
+ 
+ 
+ static void
+@@ -2251,6 +2465,7 @@ usage (int show_help)
+      "  --signature NAME Take signature from file NAME\n"
+      "  --chunk N        Read in chunks of N bytes (implies --binary)\n"
+      "  --pkcs1          Use PKCS#1 encoding\n"
++     "  --pss            Use PKCS#1 PSS encoding\n"
+      "  --mct-server     Run a monte carlo test server\n"
+      "  --loop           Enable random loop mode\n"
+      "  --progress       Print pogress indicators\n"
+@@ -2268,6 +2483,7 @@ main (int argc, char **argv)
+   int no_fips = 0;
+   int progress = 0;
+   int use_pkcs1 = 0;
++  int use_pss = 0;
+   const char *mode_string;
+   const char *key_string = NULL;
+   const char *iv_string = NULL;
+@@ -2398,6 +2614,11 @@ main (int argc, char **argv)
+           use_pkcs1 = 1;
+           argc--; argv++;
+         }
++      else if (!strcmp (*argv, "--pss"))
++        {
++          use_pss = 1;
++          argc--; argv++;
++        }
+       else if (!strcmp (*argv, "--mct-server"))
+         {
+           mct_server = 1;
+@@ -2414,7 +2635,10 @@ main (int argc, char **argv)
+     usage (0);
+   mode_string = *argv;
+ 
+-  if (!strcmp (mode_string, "rsa-derive"))
++  if (!strcmp (mode_string, "rsa-derive") ||
++      !strcmp (mode_string, "rsa-keygen") ||
++      !strcmp (mode_string, "rsa-keygen-kat") ||
++      !strcmp(mode_string, "drbg"))
+     binary_input = 1;
+ 
+   if (argc == 2 && strcmp (argv[1], "-"))
+@@ -2557,7 +2781,14 @@ main (int argc, char **argv)
+       if (!data)
+         die ("no data available (do not use --chunk)\n");
+ 
+-      run_digest (algo, data, datalen);
++      if (loop_mode)
++        {
++          run_digest_mct_loop (algo, data, datalen, 1000);
++        }
++      else
++        {
++          run_digest (algo, data, datalen);
++        }
+     }
+   else if (!strcmp (mode_string, "random"))
+     {
+@@ -2602,6 +2833,12 @@ main (int argc, char **argv)
+ 
+       deinit_external_rng_test (context);
+     }
++  else if (!strcmp (mode_string, "drbg"))
++    {
++      if (!algo_string)
++	die ("--algo required in this mode\n");
++      run_drbg_test (algo_string, data, datalen);
++    }
+   else if (!strcmp (mode_string, "hmac-sha"))
+     {
+       int algo;
+@@ -2679,7 +2916,7 @@ main (int argc, char **argv)
+       if (!data)
+         die ("no data available (do not use --chunk)\n");
+ 
+-      run_rsa_sign (data, datalen, algo, use_pkcs1, key_string);
++      run_rsa_sign (data, datalen, algo, use_pkcs1, use_pss, key_string);
+ 
+     }
+   else if (!strcmp (mode_string, "rsa-verify"))
+@@ -2702,7 +2939,7 @@ main (int argc, char **argv)
+       if (access (signature_string, R_OK))
+         die ("option --signature needs to specify an existing file\n");
+ 
+-      run_rsa_verify (data, datalen, algo, use_pkcs1, key_string,
++      run_rsa_verify (data, datalen, algo, use_pkcs1, use_pss, key_string,
+                       signature_string);
+ 
+     }
+@@ -2783,12 +3020,6 @@ main (int argc, char **argv)
+ 
+   gcry_free (data);
+ 
+-  /* Because Libgcrypt does not enforce FIPS mode in all cases we let
+-     the process die if Libgcrypt is not anymore in FIPS mode after
+-     the actual operation.  */
+-  if (!no_fips && !gcry_fips_mode_active ())
+-    die ("FIPS mode is not anymore active\n");
+-
+   if (verbose)
+     fputs (PGM ": ready\n", stderr);
+ 
