@@ -1,6 +1,6 @@
 Name: libgcrypt
 Version: 1.5.3
-Release: 14%{?dist}
+Release: 4%{?dist}
 URL: http://www.gnupg.org/
 Source0: libgcrypt-%{version}-hobbled.tar.xz
 # The original libgcrypt sources now contain potentially patented ECC
@@ -16,8 +16,11 @@ Patch1: libgcrypt-1.5.0-noecc.patch
 Patch2: libgcrypt-1.5.0-use-fipscheck.patch
 # fix tests in the FIPS mode, fix the FIPS-186-3 DSA keygen
 Patch5: libgcrypt-1.5.0-tests.patch
+# add configurable source of RNG seed and seed by default
+# from /dev/urandom in the FIPS mode
+Patch6: libgcrypt-1.5.0-fips-cfgrandom.patch
 # make the FIPS-186-3 DSA CAVS testable
-Patch7: libgcrypt-1.5.3-fips-cavs.patch
+Patch7: libgcrypt-1.5.0-fips-cavs.patch
 # fix for memory leaks an other errors found by Coverity scan
 Patch9: libgcrypt-1.5.0-leak.patch
 # use poll instead of select when gathering randomness
@@ -32,29 +35,6 @@ Patch15: libgcrypt-1.5.3-pbkdf-speedup.patch
 # with files generated with buggy version set environment
 # varible GCRYPT_WHIRLPOOL_BUG
 Patch16: libgcrypt-1.5.3-whirlpool-bug.patch
-# FIPS DRBG
-Patch17: libgcrypt-1.5.3-drbg.patch
-# Run the FIPS mode initialization in the shared library constructor
-Patch18: libgcrypt-1.5.3-fips-ctor.patch
-# Make it possible to run the test suite in the FIPS mode
-Patch19: libgcrypt-1.5.3-fips-test.patch
-# Make the FIPS RSA keygen to be FIPS 186-4 compliant
-Patch20: libgcrypt-1.5.3-rsa-fips-keygen.patch
-# add configurable source of RNG seed and seed by default
-# from /dev/urandom in the FIPS mode
-Patch21: libgcrypt-1.5.3-fips-cfgrandom.patch
-# update the selftests for new FIPS requirements
-Patch22: libgcrypt-1.5.3-fips-reqs.patch
-# use only urandom if /dev/random cannot be opened
-Patch24: libgcrypt-1.5.3-urandom-only.patch
-# fix predictable PRNG output
-Patch26: libgcrypt-1.5.3-rng-predictable.patch
-# add drgb cavs test
-Patch27: libgcrypt-1.5.3-drbg-cavs.patch
-# allow reinitialization of ath in the FIPS mode
-Patch28: libgcrypt-1.5.3-ath-reinstall.patch
-# allow auto-initialization of drbg
-Patch29: libgcrypt-1.5.3-drbg-init.patch
 
 %define gcrylibdir %{_libdir}
 
@@ -93,6 +73,7 @@ applications using libgcrypt.
 %patch1 -p1 -b .noecc
 %patch2 -p1 -b .use-fipscheck
 %patch5 -p1 -b .tests
+%patch6 -p1 -b .cfgrandom
 %patch7 -p1 -b .cavs
 %patch9 -p1 -b .leak
 %patch11 -p1 -b .use-poll
@@ -100,17 +81,6 @@ applications using libgcrypt.
 %patch13 -p1 -b .gccopt
 %patch15 -p1 -b .pbkdf-speedup
 %patch16 -p1 -b .whirlpool-bug
-%patch17 -p1 -b .drbg
-%patch18 -p1 -b .fips-ctor
-%patch19 -p1 -b .fips-test
-%patch20 -p1 -b .fips-keygen
-%patch21 -p1 -b .cfgrandom
-%patch22 -p1 -b .fips-reqs
-%patch24 -p1 -b .urandom-only
-%patch26 -p1 -b .rng-predictable
-%patch27 -p1 -b .drbg-cavs
-%patch28 -p1 -b .ath-reinstall
-%patch29 -p1 -b .drbg-init
 
 %build
 %configure --disable-static \
@@ -212,40 +182,6 @@ exit 0
 %doc COPYING
 
 %changelog
-* Tue Feb 28 2017 Tomáš Mráz <tmraz@redhat.com> 1.5.3-14
-- add DRBG CAVS driver and other necessary CAVS driver updates (#1172568)
-- allow ath reinitialization in FIPS mode
-- allow for auto-initialization of DRBG
-
-* Tue Oct 25 2016 Tomáš Mráz <tmraz@redhat.com> 1.5.3-13.1
-- fix CVE-2016-6313 - predictable PRNG output (#1366105)
-
-* Fri Apr 10 2015 Tomáš Mráz <tmraz@redhat.com> 1.5.3-13
-- touch only urandom in the selftest and when /dev/random is
-  unavailable for example by SELinux confinement
-- fix the RSA selftest key (p q swap)
-
-* Wed Jan 14 2015 Tomáš Mráz <tmraz@redhat.com> 1.5.3-12
-- use macros instead of inline functions in the public header
-
-* Fri Dec 12 2014 Tomáš Mráz <tmraz@redhat.com> 1.5.3-11
-- do not initialize secure memory during the selftest
-
-* Fri Nov 14 2014 Tomáš Mráz <tmraz@redhat.com> 1.5.3-10
-- update the selftests for the new FIPS requirements
-
-* Fri Oct 31 2014 Tomáš Mráz <tmraz@redhat.com> 1.5.3-9
-- apply the fips-cfgrandom change also to the drbg seeding
-
-* Tue Oct 21 2014 Tomáš Mráz <tmraz@redhat.com> 1.5.3-7
-- make the RSA keygen to be compliant to FIPS 186-4 in
-  FIPS mode
-
-* Fri Sep 26 2014 Tomáš Mráz <tmraz@redhat.com> 1.5.3-5
-- add FIPS DRBG implementation
-- run the FIPS POST tests in shared library constructor
-- make it possible to run the test suite in the FIPS mode
-
 * Fri Jan 24 2014 Daniel Mach <dmach@redhat.com> - 1.5.3-4
 - Mass rebuild 2014-01-24
 

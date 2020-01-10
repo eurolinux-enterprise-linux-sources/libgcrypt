@@ -1,22 +1,6 @@
-diff -up libgcrypt-1.5.3/random/drbg.c.cfgrandom libgcrypt-1.5.3/random/drbg.c
---- libgcrypt-1.5.3/random/drbg.c.cfgrandom	2014-10-30 16:42:49.000000000 +0100
-+++ libgcrypt-1.5.3/random/drbg.c	2014-10-30 16:46:57.291800433 +0100
-@@ -485,8 +485,11 @@ gcry_drbg_get_entropy (struct gcry_drbg_
-   read_cb_size = len;
-   read_cb_len = 0;
- #if USE_RNDLINUX
-+  _gcry_rndlinux_gather_random (gcry_drbg_read_cb, 0, len,
-+				     -1);
-+  read_cb_len = 0;
-   rc = _gcry_rndlinux_gather_random (gcry_drbg_read_cb, 0, len,
--				     GCRY_VERY_STRONG_RANDOM);
-+				     GCRY_STRONG_RANDOM);
- #elif USE_RNDUNIX
-   rc = _gcry_rndunix_gather_random (read_cb, 0, length,
- 				    GCRY_VERY_STRONG_RANDOM);
-diff -up libgcrypt-1.5.3/random/random-fips.c.cfgrandom libgcrypt-1.5.3/random/random-fips.c
---- libgcrypt-1.5.3/random/random-fips.c.cfgrandom	2014-10-30 16:42:49.942216405 +0100
-+++ libgcrypt-1.5.3/random/random-fips.c	2014-10-30 16:42:49.970217037 +0100
+diff -up libgcrypt-1.5.0/random/random-fips.c.cfgrandom libgcrypt-1.5.0/random/random-fips.c
+--- libgcrypt-1.5.0/random/random-fips.c.cfgrandom	2011-07-21 14:50:34.000000000 +0200
++++ libgcrypt-1.5.0/random/random-fips.c	2011-07-21 14:50:34.000000000 +0200
 @@ -27,10 +27,10 @@
     There are 3 random context which map to the different levels of
     random quality:
@@ -60,10 +44,10 @@ diff -up libgcrypt-1.5.3/random/random-fips.c.cfgrandom libgcrypt-1.5.3/random/r
  #elif USE_RNDW32
    do
      {
-diff -up libgcrypt-1.5.3/random/rndlinux.c.cfgrandom libgcrypt-1.5.3/random/rndlinux.c
---- libgcrypt-1.5.3/random/rndlinux.c.cfgrandom	2014-10-30 16:42:49.949216563 +0100
-+++ libgcrypt-1.5.3/random/rndlinux.c	2014-10-30 16:42:49.971217059 +0100
-@@ -37,7 +37,9 @@
+diff -up libgcrypt-1.5.0/random/rndlinux.c.cfgrandom libgcrypt-1.5.0/random/rndlinux.c
+--- libgcrypt-1.5.0/random/rndlinux.c.cfgrandom	2011-02-04 20:16:03.000000000 +0100
++++ libgcrypt-1.5.0/random/rndlinux.c	2011-07-21 14:50:34.000000000 +0200
+@@ -36,7 +36,9 @@
  #include "g10lib.h"
  #include "rand-internal.h"
  
@@ -74,7 +58,7 @@ diff -up libgcrypt-1.5.3/random/rndlinux.c.cfgrandom libgcrypt-1.5.3/random/rndl
  
  
  static int
-@@ -58,13 +60,17 @@ set_cloexec_flag (int fd)
+@@ -57,13 +59,17 @@ set_cloexec_flag (int fd)
   * Used to open the /dev/random devices (Linux, xBSD, Solaris (if it exists)).
   */
  static int
@@ -94,7 +78,7 @@ diff -up libgcrypt-1.5.3/random/rndlinux.c.cfgrandom libgcrypt-1.5.3/random/rndl
  
    if (set_cloexec_flag (fd))
      log_error ("error setting FD_CLOEXEC on fd %d: %s\n",
-@@ -93,6 +99,7 @@ _gcry_rndlinux_gather_random (void (*add
+@@ -92,6 +98,7 @@ _gcry_rndlinux_gather_random (void (*add
  {
    static int fd_urandom = -1;
    static int fd_random = -1;
@@ -102,7 +86,7 @@ diff -up libgcrypt-1.5.3/random/rndlinux.c.cfgrandom libgcrypt-1.5.3/random/rndl
    int fd;
    int n;
    byte buffer[768];
-@@ -101,6 +108,7 @@ _gcry_rndlinux_gather_random (void (*add
+@@ -100,6 +107,7 @@ _gcry_rndlinux_gather_random (void (*add
    size_t last_so_far = 0;
    int any_need_entropy = 0;
    int delay;
@@ -110,7 +94,7 @@ diff -up libgcrypt-1.5.3/random/rndlinux.c.cfgrandom libgcrypt-1.5.3/random/rndl
  
    /* First read from a hardware source.  However let it account only
       for up to 50% of the requested bytes.  */
-@@ -111,16 +119,26 @@ _gcry_rndlinux_gather_random (void (*add
+@@ -110,16 +118,26 @@ _gcry_rndlinux_gather_random (void (*add
      length -= n_hw;
  
    /* Open the requested device.  */
